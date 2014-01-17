@@ -36,9 +36,12 @@ import string
 import time
 import logging
 import getpass
-from grab_rate import currency
+from grab_rate import cryptsy
+from grab_rate import btce
 from grab_rate import coinbasebtc
 from grab_rate import mtgoxbtc
+from grab_rate import dgex
+from grab_rate import btc_balance
 
 class WorkHorse:
 
@@ -117,7 +120,7 @@ class WorkHorse:
         if entry.title.text == self.sheet_name:
           return '%i'%i
 
-  def Run(self, label, logger=False):
+  def Run(self, btcaddr_list, cryptsy_list, btce_list, logger=False):
     try:
       self._PromptForSpreadsheet()
     except:
@@ -130,36 +133,95 @@ class WorkHorse:
       # tell the program to relogin
       logger.error("Error: Unable to prompt worksheet")
       return True
+
+    row = 3
+
+    for i, address in enumerate(btcaddr_list):
+      row+=1
+      amount = btc_balance(address)
+      if amount != 'noupdate':
+        try:
+          self._PromptForCellsAction(['update', '%i 2 BTC'%(row)])
+          self._PromptForCellsAction(['update', '%i 3 %s'%(row,address)])
+          self._PromptForCellsAction(['update', '%i 4 %.9f'%(row,amount)])
+        except:
+          logger.error("Error: Unable to Update %s Cells"%address)
+      else:
+          logger.error("Error: Unable to Update Currency Price %s"%address)
+
+    row+=6
+
+    try:
+      self._PromptForCellsAction(['update', '%i 2 MARKET'%(row)])
+      self._PromptForCellsAction(['update', '%i 3 PAIR'%(row)])
+      self._PromptForCellsAction(['update', '%i 4 RATE'%(row)])
+    except:
+      logger.error("Error: Unable to Update coinbase BTC Cells")
+
     # Get coinbase btc price
+    row+=1
     price = coinbasebtc()
     if price != 'noupdate':
       try:
-        self._PromptForCellsAction(['update', '2 1  Coinbase'])
-        self._PromptForCellsAction(['update', '2 2  %.9f'%(price)])
+        self._PromptForCellsAction(['update', '%i 2 COINBASE'%(row)])
+        self._PromptForCellsAction(['update', '%i 3 BTC/USD'%(row)])
+        self._PromptForCellsAction(['update', '%i 4 %.9f'%(row,price)])
       except:
         logger.error("Error: Unable to Update coinbase BTC Cells")
     else:
         logger.error("Error: Unable to Update Currency Price Coinbase")
     # Get MTgox btc price
+    row+=1
     price = mtgoxbtc()
     if price != 'noupdate':
       try:
-        self._PromptForCellsAction(['update', '3 1  MTgox'])
-        self._PromptForCellsAction(['update', '3 2  %.9f'%(price)])
+        self._PromptForCellsAction(['update', '%i 2 MTGOX'%(row)])
+        self._PromptForCellsAction(['update', '%i 3 USD/BTC'%(row)])
+        self._PromptForCellsAction(['update', '%i 4 %.9f'%(row,price)])
       except:
         logger.error("Error: Unable to Update mtgox BTC Cells")
     else:
-        logger.error("Error: Unable to Update Currency Price MTgox")
-    for i, coin in enumerate(label):
-      price = currency(coin)
+        logger.error("Error: Unable to Update MTGOX USD/BTC")
+
+    # Get DGEX NXT
+    row+=1
+    price = dgex()
+    if price != 'noupdate':
+      try:
+        self._PromptForCellsAction(['update', '%i 2 DGEX'%(row)])
+        self._PromptForCellsAction(['update', '%i 3 NXT/BTC'%(row)])
+        self._PromptForCellsAction(['update', '%i 4 %.9f'%(row,price)])
+      except:
+        logger.error("Error: Unable to Update DGEX Cells")
+    else:
+        logger.error("Error: Unable to Update DGEX NXT/BTC")
+
+    for i, pair in enumerate(btce_list):
+      row+=1
+      price = btce(pair)
       if price != 'noupdate':
         try:
-          self._PromptForCellsAction(['update', '1 %i %s'%(i+3,coin)])
-          self._PromptForCellsAction(['update', '2 %i %.9f'%(i+3,price)])
+          self._PromptForCellsAction(['update', '%i 2 BTC-E'%(row)])
+          self._PromptForCellsAction(['update', '%i 3 %s'%(row,pair)])
+          self._PromptForCellsAction(['update', '%i 4 %.9f'%(row,price)])
         except:
-          logger.error("Error: Unable to Update %s Cells"%coin)
+          logger.error("Error: Unable to Update %s Cells"%pair)
       else:
-          logger.error("Error: Unable to Update Currency Price %s"%coin)
+          logger.error("Error: Unable to Update BTC-E %s"%pair)
+
+    for i, pair in enumerate(cryptsy_list):
+      row+=1
+      price = cryptsy(pair)
+      if price != 'noupdate':
+        try:
+          self._PromptForCellsAction(['update', '%i 2 CRYPTSY'%(row)])
+          self._PromptForCellsAction(['update', '%i 3 %s'%(row,pair)])
+          self._PromptForCellsAction(['update', '%i 4 %.9f'%(row,price)])
+        except:
+          logger.error("Error: Unable to Update %s Cells"%pair)
+      else:
+          logger.error("Error: Unable to Update CRYPTSY %s"%pair)
+
     return False
 
 def main():
@@ -174,14 +236,17 @@ def main():
     logger.info("log Started")
     try:
         opts, args = getopt.getopt(sys.argv[1:], "", ["user=",
-            "pw=","currency=","s=","c="])
+            "pw=","btcaddr=","cryptsy=","btce=","s=","c="])
     except:
         print '--c [start|stop] --user [username] --pw [password] --s [worksheet name] --currency [DGCLTC,LTCBTC]'
         sys.exit(2)
     user = ''
     pw = ''
     sheet_name = ''
-    label = ''
+    btcaddr_list = ''
+    ltcaddr_list = ''
+    cryptsy_list = ''
+    btce_list = ''
     c = ""
     # Process options
     for o, a in opts:
@@ -189,20 +254,24 @@ def main():
             user = a
         elif o == "--s":
             sheet_name = a
-        elif o == "--currency":
-            label = a.split(',')
+        elif o == "--btcaddr":
+            btcaddr_list = a.split(',')
+        elif o == "--cryptsy":
+            cryptsy_list = a.split(',')
+        elif o == "--btce":
+            btce_list = a.split(',')
         elif o == "--c":
             c = a
     #label can be any of the cryptop coins on 
     #cryptsy
-    label = ['DGCBTC','DGCLTC','LTCBTC']
+    #label = ['DGCBTC','DGCLTC','LTCBTC']
     pw = getpass.getpass('\nPassword: ')
     if user == '' or pw == '' or sheet_name == '':
         print '--user [username] --s [sheet name]'
         sys.exit(2)
     speedy = WorkHorse(user, pw, sheet_name)
     while True:
-        if speedy.Run(label,logger):
+        if speedy.Run(btcaddr_list, cryptsy_list, btce_list, logger):
             try:
                 speedy = WorkHorse(user, pw, sheet_name)
             except:
@@ -210,8 +279,8 @@ def main():
                 logger.error("Error: If this fails please report the bug")
                 speedy = WorkHorse(user, pw, sheet_name)
                 logger.info("Second Attempt Succesful")
-        print 'updated prices '
-        time.sleep(30)
+        print '...'
+        time.sleep(60*60*6)
 
 
 if __name__ == '__main__':
